@@ -27,7 +27,7 @@ class Canvas(QtWidgets.QLabel):
 
         buttonSave = QPushButton('save', self)
         buttonSave.setToolTip('save')
-        buttonSave.move(10,10)
+        buttonSave.move(120,10)
         buttonSave.clicked.connect(self.save)
 
         self.show()
