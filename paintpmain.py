@@ -8,99 +8,97 @@ from PyQt5.QtCore import *
 title = "Paint"
  
 class Canvas(QtWidgets.QLabel):
-
     current_color = '#000000'
 
-    def __init__(self):
+    def __init__(self, grid_size=32, cell_size=20):
         super().__init__()
-        self.image = QtGui.QPixmap(1200, 600)
+        self.grid_size = grid_size
+        self.cell_size = cell_size
+        self.init_canvas()
+    
+    def init_canvas(self):
+        width, height = self.grid_size * self.cell_size, self.grid_size * self.cell_size
+        self.image = QtGui.QPixmap(width, height)
         self.image.fill(Qt.white)
         self.setPixmap(self.image)
 
-        self.last_x, self.last_y = None, None
         self.pen_color = QtGui.QColor('#000000')
+        self.setFixedSize(width, height)
 
-        button = QPushButton('Open color dialog', self)
-        button.setToolTip('Opens color dialog')
-        button.move(10,10)
-        button.clicked.connect(self.on_click)
+    def set_pen_color(self, color):
+        self.pen_color = color
 
-        buttonSave = QPushButton('save', self)
-        buttonSave.setToolTip('save')
-        buttonSave.move(120,10)
-        buttonSave.clicked.connect(self.save)
-
-        self.show()
-    
-    def on_click(self):
-        self.openColorDialog()
-
-    def openColorDialog(self):
-        color = QColorDialog.getColor()
-
-        if color.isValid():
-            self.set_pen_color(color)
-            return
-
-    def set_pen_color(self, c):
-        self.pen_color = QtGui.QColor(c)
-        current_color = c
+    def clear_canvas(self, grid_size, cell_size):
+        self.grid_size = grid_size
+        self.cell_size = cell_size
+        self.init_canvas()
+        self.update()
 
     def mouseMoveEvent(self, e):
-        if self.last_x is None: # First event.
-            self.last_x = e.x()
-            self.last_y = e.y()
-            return # Ignore the first time.
+        x = (e.x() // self.cell_size) * self.cell_size
+        y = (e.y() // self.cell_size) * self.cell_size
 
         painter = QtGui.QPainter(self.pixmap())
-        p = painter.pen()
-        p.setWidth(4)
-        p.setColor(self.pen_color)
-        painter.setPen(p)
-        painter.drawLine(self.last_x, self.last_y, e.x(), e.y())
+        painter.fillRect(x, y, self.cell_size, self.cell_size, self.pen_color)
         painter.end()
         self.update()
 
-        # Update the origin for next time.
-        self.last_x = e.x()
-        self.last_y = e.y()
-
-    def mouseReleaseEvent(self, e):
-        self.last_x = None
-        self.last_y = None
-
-    def save(self):
-         
-        # selecting file path
-        filePath, _ = QFileDialog.getSaveFileName(self, "Save Image", "",
-                         "PNG(*.png);;JPEG(*.jpg *.jpeg);;All Files(*.*) ")
- 
-        # if file path is blank return back
-        if filePath == "":
-            return
-         
-        # saving canvas at desired path
-        self.image = self.pixmap()
-        self.image.save(filePath)
-
 class MainWindow(QtWidgets.QMainWindow):
-
     def __init__(self):
         super().__init__()
 
         self.canvas = Canvas()
+        self.setup_ui()
+        self.create_menus()
 
+    def setup_ui(self):
         w = QtWidgets.QWidget()
         l = QtWidgets.QVBoxLayout()
+        l.addWidget(self.canvas, alignment=Qt.AlignCenter)
         w.setLayout(l)
-        l.addWidget(self.canvas)
-
         self.setCentralWidget(w)
+            
+    def create_menus(self):
+        menubar = self.menuBar()
 
-        
+        fileMenu = menubar.addMenu('File')
 
+        newGridAction = QAction('New Grid', self)
+        newGridAction.triggered.connect(self.new_grid_dialog)
+        fileMenu.addAction(newGridAction)
+
+        saveAction = QAction('Save', self)
+        saveAction.triggered.connect(self.canvas_save)
+        fileMenu.addAction(saveAction)
+
+        colorMenu = menubar.addMenu('Color')
+
+        colorAction = QAction('Open Color Dialog', self)
+        colorAction.triggered.connect(self.open_color_dialog)
+        colorMenu.addAction(colorAction)
+
+    def new_grid_dialog(self):
+        grid_size, ok = QInputDialog.getInt(
+            self, "New Grid", "Enter grid size (e.g., 32 for 32x32)", 32, 8, 512, 8
+        )
+        if ok:
+            cell_size, ok = QInputDialog.getInt(
+                self, "Cell Size", "Enter cell size (32 for 32x32, etc):", 
+            )
+            if ok:
+                self.canvas.clear_canvas(grid_size, cell_size)
+
+    def open_color_dialog(self):
+        color = QColorDialog.getColor()
+        if color.isValid():
+            self.canvas.set_pen_color(color)
     
-    
+    def canvas_save(self):
+        filePath, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "PNG(*.png);;JPEG(*.jpg *.jpeg);;All Files(*.*) ")
+
+        if filePath:
+            self.canvas.pixmap().save(filePath)
+
 app = QtWidgets.QApplication(sys.argv)
 window = MainWindow()
 window.show()
