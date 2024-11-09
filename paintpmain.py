@@ -4,8 +4,11 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
+from PyQt5.QtGui import QPixmap
 
 title = "Paint"
+
+gridsize = int(32)
  
 class Canvas(QtWidgets.QLabel):
     current_color = '#000000'
@@ -15,11 +18,11 @@ class Canvas(QtWidgets.QLabel):
         self.grid_size = grid_size
         self.cell_size = cell_size
         self.init_canvas()
-    
+
     def init_canvas(self):
         width, height = self.grid_size * self.cell_size, self.grid_size * self.cell_size
         self.image = QtGui.QPixmap(width, height)
-        self.image.fill(Qt.white)
+        self.image.fill(Qt.transparent)
         self.setPixmap(self.image)
 
         self.pen_color = QtGui.QColor('#000000')
@@ -37,11 +40,13 @@ class Canvas(QtWidgets.QLabel):
     def mouseMoveEvent(self, e):
         x = (e.x() // self.cell_size) * self.cell_size
         y = (e.y() // self.cell_size) * self.cell_size
-
         painter = QtGui.QPainter(self.pixmap())
         painter.fillRect(x, y, self.cell_size, self.cell_size, self.pen_color)
         painter.end()
         self.update()
+
+    def resizeCanvas (self, grid_size):
+        return self.pixmap().scaled(grid_size, grid_size, QtCore.Qt.KeepAspectRatio)
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -60,9 +65,8 @@ class MainWindow(QtWidgets.QMainWindow):
             
     def create_menus(self):
         menubar = self.menuBar()
-
         fileMenu = menubar.addMenu('File')
-
+        
         newGridAction = QAction('New Grid', self)
         newGridAction.triggered.connect(self.new_grid_dialog)
         fileMenu.addAction(newGridAction)
@@ -71,8 +75,11 @@ class MainWindow(QtWidgets.QMainWindow):
         saveAction.triggered.connect(self.canvas_save)
         fileMenu.addAction(saveAction)
 
-        colorMenu = menubar.addMenu('Color')
+        openAction = QAction('Open', self)
+        openAction.triggered.connect(self.openImage)
+        fileMenu.addAction(openAction)
 
+        colorMenu = menubar.addMenu('Color')
         colorAction = QAction('Open Color Dialog', self)
         colorAction.triggered.connect(self.open_color_dialog)
         colorMenu.addAction(colorAction)
@@ -82,11 +89,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self, "New Grid", "Enter grid size (e.g., 32 for 32x32)", 32, 8, 512, 8
         )
         if ok:
-            cell_size, ok = QInputDialog.getInt(
-                self, "Cell Size", "Enter cell size (32 for 32x32, etc):", 
-            )
-            if ok:
-                self.canvas.clear_canvas(grid_size, cell_size)
+                gridsize = grid_size
+                self.canvas.clear_canvas(grid_size, 16)
 
     def open_color_dialog(self):
         color = QColorDialog.getColor()
@@ -97,7 +101,13 @@ class MainWindow(QtWidgets.QMainWindow):
         filePath, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "PNG(*.png);;JPEG(*.jpg *.jpeg);;All Files(*.*) ")
 
         if filePath:
-            self.canvas.pixmap().save(filePath)
+            self.canvas.resizeCanvas(gridsize).save(filePath)
+
+    def openImage(self):
+        imagePath, _ = QFileDialog.getOpenFileName()
+        pixmap = QPixmap(imagePath)
+        gridsize = pixmap.size()
+        self.canvas.setPixmap(pixmap)
 
 app = QtWidgets.QApplication(sys.argv)
 window = MainWindow()
