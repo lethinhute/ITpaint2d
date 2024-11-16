@@ -6,13 +6,6 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import QPixmap
 
-<<<<<<< Updated upstream
-title = "Paint" # what is this for?
-
-gridsize = int(32)
- 
-class Canvas(QtWidgets.QLabel):
-=======
 title = "Paint"
 gridsize = int(32)
  
@@ -23,7 +16,6 @@ class Canvas(QtWidgets.QLabel):
     isDrawing = True
     isErasing = False
 
->>>>>>> Stashed changes
     def __init__(self, grid_size=32, cell_size=20):
         super().__init__()
         self.grid_size = grid_size
@@ -58,11 +50,6 @@ class Canvas(QtWidgets.QLabel):
         self.updateTransform()
 
     def mouseMoveEvent(self, e):
-<<<<<<< Updated upstream
-        x = int((e.x() / self.zoom_level) // self.cell_size) * self.cell_size
-        y = int((e.y() / self.zoom_level) // self.cell_size) * self.cell_size
-        painter = QtGui.QPainter(self.image)
-=======
         if (self.isDrawing):
             self.DrawEevent(e)
         if (self.isErasing):
@@ -78,10 +65,9 @@ class Canvas(QtWidgets.QLabel):
         x = (e.x() // self.cell_size) * self.cell_size
         y = (e.y() // self.cell_size) * self.cell_size
         painter = QtGui.QPainter(self.pixmap())
->>>>>>> Stashed changes
         painter.fillRect(x, y, self.cell_size, self.cell_size, self.pen_color)
         painter.end()
-        self.updateTransform()
+        self.update()
 
     def EraserEevent (self, e):
         x = (e.x() // self.cell_size) * self.cell_size
@@ -166,7 +152,6 @@ class MainWindow(QtWidgets.QMainWindow):
         colorAction.triggered.connect(self.open_color_dialog)
         colorMenu.addAction(colorAction)
 
-<<<<<<< Updated upstream
         viewMenu = menubar.addMenu("View")
         
         zoomInAction = QAction("Zoom In", self)
@@ -180,7 +165,7 @@ class MainWindow(QtWidgets.QMainWindow):
         resetZoomAction = QAction("Reset Zoom", self)
         resetZoomAction.triggered.connect(self.canvas.reset_zoom)
         viewMenu.addAction(resetZoomAction)
-=======
+
         fillAction = QAction('Fill Canvas', self)
         fillAction.triggered.connect(self.canvas.fill_canvas)
         colorMenu.addAction(fillAction)
@@ -192,7 +177,6 @@ class MainWindow(QtWidgets.QMainWindow):
         penAction = QAction ('Pen', self)
         penAction.triggered.connect(self.canvas.changeToPen)
         colorMenu.addAction (penAction)
->>>>>>> Stashed changes
 
     def new_grid_dialog(self):
         grid_size, ok = QInputDialog.getInt(
