@@ -6,11 +6,24 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import QPixmap
 
+<<<<<<< Updated upstream
 title = "Paint" # what is this for?
 
 gridsize = int(32)
  
 class Canvas(QtWidgets.QLabel):
+=======
+title = "Paint"
+gridsize = int(32)
+ 
+class Canvas(QtWidgets.QLabel):
+    current_color = '#000000'
+    current_eraser = Qt.transparent
+
+    isDrawing = True
+    isErasing = False
+
+>>>>>>> Stashed changes
     def __init__(self, grid_size=32, cell_size=20):
         super().__init__()
         self.grid_size = grid_size
@@ -45,15 +58,64 @@ class Canvas(QtWidgets.QLabel):
         self.updateTransform()
 
     def mouseMoveEvent(self, e):
+<<<<<<< Updated upstream
         x = int((e.x() / self.zoom_level) // self.cell_size) * self.cell_size
         y = int((e.y() / self.zoom_level) // self.cell_size) * self.cell_size
         painter = QtGui.QPainter(self.image)
+=======
+        if (self.isDrawing):
+            self.DrawEevent(e)
+        if (self.isErasing):
+            self.EraserEevent(e)
+
+    def mousePressEvent (self, e):
+        if (self.isDrawing):
+            self.DrawEevent(e)
+        if (self.isErasing):
+            self.EraserEevent(e)
+
+    def DrawEevent (self, e):
+        x = (e.x() // self.cell_size) * self.cell_size
+        y = (e.y() // self.cell_size) * self.cell_size
+        painter = QtGui.QPainter(self.pixmap())
+>>>>>>> Stashed changes
         painter.fillRect(x, y, self.cell_size, self.cell_size, self.pen_color)
         painter.end()
         self.updateTransform()
 
+    def EraserEevent (self, e):
+        x = (e.x() // self.cell_size) * self.cell_size
+        y = (e.y() // self.cell_size) * self.cell_size
+        painter = QtGui.QPainter(self.pixmap())
+        painter.setCompositionMode(QtGui.QPainter.CompositionMode_Clear)
+        painter.fillRect(x, y, self.cell_size*3, self.cell_size*3, Qt.transparent)
+        painter.end()
+        self.update()
+
+    def fill_canvas(self):
+        # Fill the entire canvas with the current pen color
+        painter = QtGui.QPainter(self.pixmap())
+        painter.fillRect(0, 0, self.width(), self.height(), self.pen_color)
+        painter.end()
+        self.update()
+
     def resizeCanvas (self, grid_size):
         return self.pixmap().scaled(grid_size, grid_size, QtCore.Qt.KeepAspectRatio)
+    
+    def resizeCanvas (self, grid_size_h, grid_size_w):
+        return self.pixmap().scaled(grid_size_h, grid_size_w, QtCore.Qt.KeepAspectRatio)
+    def changeToErase (self):
+        self.changeFunction(1)
+    def changeToPen (self):
+        self.changeFunction(2)
+    
+    def changeFunction (self, action):
+        if (action == 1):
+            self.isErasing = True
+            self.isDrawing = False  
+        if (action == 2):
+            self.isErasing = False
+            self.isDrawing = True
 
     def zoom(self, zoom_factor):
         self.zoom_level *= zoom_factor
@@ -104,6 +166,7 @@ class MainWindow(QtWidgets.QMainWindow):
         colorAction.triggered.connect(self.open_color_dialog)
         colorMenu.addAction(colorAction)
 
+<<<<<<< Updated upstream
         viewMenu = menubar.addMenu("View")
         
         zoomInAction = QAction("Zoom In", self)
@@ -117,6 +180,19 @@ class MainWindow(QtWidgets.QMainWindow):
         resetZoomAction = QAction("Reset Zoom", self)
         resetZoomAction.triggered.connect(self.canvas.reset_zoom)
         viewMenu.addAction(resetZoomAction)
+=======
+        fillAction = QAction('Fill Canvas', self)
+        fillAction.triggered.connect(self.canvas.fill_canvas)
+        colorMenu.addAction(fillAction)
+
+        eraserAction = QAction ('Eraser', self)
+        eraserAction.triggered.connect(self.canvas.changeToErase)
+        colorMenu.addAction (eraserAction)
+
+        penAction = QAction ('Pen', self)
+        penAction.triggered.connect(self.canvas.changeToPen)
+        colorMenu.addAction (penAction)
+>>>>>>> Stashed changes
 
     def new_grid_dialog(self):
         grid_size, ok = QInputDialog.getInt(
