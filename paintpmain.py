@@ -42,7 +42,6 @@ class Canvas(QtWidgets.QLabel):
         height = int(self.grid_size * self.cell_size * self.zoom_level)
         self.setFixedSize(width, height)
 
-        # Update the pixmap to match the scaled size
         scaled_image = self.image.scaled(width, height, QtCore.Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
         self.setPixmap(scaled_image)
 
@@ -163,25 +162,24 @@ class Canvas(QtWidgets.QLabel):
         self.setCursor(QtGui.QCursor(cursor_pixmap))
 
     def save_state(self):
-        if len(self.undo_stack) > 50:  # Optional: Limit the stack size to prevent excessive memory usage
+        if len(self.undo_stack) > 50:
             self.undo_stack.pop(0)
-        self.undo_stack.append(self.image.copy())  # Save a copy of the current state
-        self.redo_stack.clear()  # Clear redo stack on new action
+        self.undo_stack.append(self.image.copy())
+        self.redo_stack.clear()
 
     def undo(self):
         if self.undo_stack:
-            self.redo_stack.append(self.image.copy())  # Save the current state to the redo stack
-            self.image = self.undo_stack.pop()  # Restore the previous state
-            self.setPixmap(self.image)  # Update the canvas display
+            self.redo_stack.append(self.image.copy())
+            self.image = self.undo_stack.pop()
+            self.setPixmap(self.image)
             self.updateTransform()
 
     def redo(self):
         if self.redo_stack:
-            self.undo_stack.append(self.image.copy())  # Save the current state to the undo stack
-            self.image = self.redo_stack.pop()  # Restore the next state
-            self.setPixmap(self.image)  # Update the canvas display
+            self.undo_stack.append(self.image.copy())
+            self.image = self.redo_stack.pop()
+            self.setPixmap(self.image)
             self.updateTransform()
-
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -192,6 +190,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setup_ui()
         self.create_menus()
         self.adjust_window_size_to_canvas()
+        self.showMaximized()
+
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+="), self).activated.connect(lambda: self.canvas.zoom(2))
 
     def setup_ui(self):
         scroll_area = QtWidgets.QScrollArea()
@@ -256,7 +257,6 @@ class MainWindow(QtWidgets.QMainWindow):
         viewMenu = menubar.addMenu("View")
         
         zoomInAction = QAction("Zoom In", self)
-        zoomInAction.setShortcut("Ctrl+=")
         zoomInAction.setShortcut("Ctrl++")
         zoomInAction.triggered.connect(lambda: self.canvas.zoom(2))
         viewMenu.addAction(zoomInAction)
@@ -288,14 +288,26 @@ class MainWindow(QtWidgets.QMainWindow):
             self, "New Grid", "Enter grid size (e.g., 32 for 32x32)", 32, 8, 512, 8
         )
         if ok:
-                global gridsize
-                gridsize = grid_size
-                self.canvas.clear_canvas(grid_size, 16)
+            global gridsize
+            gridsize = grid_size
 
-                # resize window
-                new_width = grid_size * self.canvas.cell_size + self.canvas.frameWidth() * 2
-                new_height = grid_size * self.canvas.cell_size + self.menuBar().height() + self.canvas.frameWidth() * 2
-                self.setFixedSize(new_width, new_height)
+            max_grid_size = 128
+            if gridsize > max_grid_size:
+                gridsize = max_grid_size # limit size
+                QMessageBox.warning(self, "Warning", f"Grid size is too large. Limiting to {max_grid_size}.")
+
+            self.canvas.clear_canvas(gridsize, 16)
+
+            # prevent the new window from expanding past the screen
+            new_width = gridsize * self.canvas.cell_size + self.canvas.frameWidth() * 2
+            new_height = gridsize * self.canvas.cell_size + self.menuBar().height() + self.canvas.frameWidth() * 2
+            screen_geometry = QApplication.primaryScreen().geometry()
+            max_width = screen_geometry.width() - 50  # 50px margin to avoid overflow
+            max_height = screen_geometry.height() - 50 
+            new_width = min(new_width, max_width)
+            new_height = min(new_height, max_height)
+
+            self.resize(new_width, new_height)
 
     def open_color_dialog(self):
         color = QColorDialog.getColor()
