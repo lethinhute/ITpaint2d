@@ -6,11 +6,14 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import QPixmap
 
+title = "Paint"
+
 gridsize = int(32)
  
 class Canvas(QtWidgets.QLabel):
     current_color = '#000000'
     current_eraser = Qt.transparent
+
     isDrawing = True
     isErasing = False
     isFilling = False
@@ -38,10 +41,10 @@ class Canvas(QtWidgets.QLabel):
         self.setStyleSheet("border: 3px solid gray")
 
     def updateTransform(self):
-        width = int(self.grid_size * self.cell_size * self.zoom_level)
-        height = int(self.grid_size * self.cell_size * self.zoom_level)
-        self.setFixedSize(width, height)
-
+        transform = QtGui.QTransform()
+        transform.scale(self.zoom_level, self.zoom_level)
+        self.setPixmap(self.image.transformed(transform, Qt.SmoothTransformation))
+        self.update()
         scaled_image = self.image.scaled(width, height, QtCore.Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
         self.setPixmap(scaled_image)
 
@@ -181,6 +184,48 @@ class Canvas(QtWidgets.QLabel):
             self.setPixmap(self.image)
             self.updateTransform()
 
+    def EraserEevent (self, e):
+        x = (e.x() // self.cell_size) * self.cell_size
+        y = (e.y() // self.cell_size) * self.cell_size
+        painter = QtGui.QPainter(self.pixmap())
+        painter.setCompositionMode(QtGui.QPainter.CompositionMode_Clear)
+        painter.fillRect(x, y, self.cell_size*3, self.cell_size*3, Qt.transparent)
+        painter.end()
+        self.update()
+
+    def fill_canvas(self):
+        # Fill the entire canvas with the current pen color
+        painter = QtGui.QPainter(self.pixmap())
+        painter.fillRect(0, 0, self.width(), self.height(), self.pen_color)
+        painter.end()
+        self.update()
+
+    def resizeCanvas (self, grid_size):
+        return self.pixmap().scaled(grid_size, grid_size, QtCore.Qt.KeepAspectRatio)
+    
+    def resizeCanvas (self, grid_size_h, grid_size_w):
+        return self.pixmap().scaled(grid_size_h, grid_size_w, QtCore.Qt.KeepAspectRatio)
+    def changeToErase (self):
+        self.changeFunction(1)
+    def changeToPen (self):
+        self.changeFunction(2)
+    
+    def changeFunction (self, action):
+        if (action == 1):
+            self.isErasing = True
+            self.isDrawing = False  
+        if (action == 2):
+            self.isErasing = False
+            self.isDrawing = True
+
+    def zoom(self, zoom_factor):
+        self.zoom_level *= zoom_factor
+        self.updateTransform()
+
+    def reset_zoom(self):
+        self.zoom_level = 1.0
+        self.updateTransform()
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -194,6 +239,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+="), self).activated.connect(lambda: self.canvas.zoom(2))
 
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl++"), self).activated.connect(lambda: self.canvas.zoom(2))
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+="), self).activated.connect(lambda: self.canvas.zoom(2))
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+-"), self).activated.connect(lambda: self.canvas.zoom(0.5))
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+0"), self).activated.connect(self.canvas.reset_zoom)
+
     def setup_ui(self):
         scroll_area = QtWidgets.QScrollArea()
         scroll_area.setWidget(self.canvas)
@@ -204,9 +254,8 @@ class MainWindow(QtWidgets.QMainWindow):
             
     def create_menus(self):
         menubar = self.menuBar()
-
         fileMenu = menubar.addMenu('File')
-
+        
         newGridAction = QAction('New Grid', self)
         newGridAction.setShortcut("Ctrl+N")
         newGridAction.triggered.connect(self.new_grid_dialog)
@@ -217,7 +266,7 @@ class MainWindow(QtWidgets.QMainWindow):
         saveAction.triggered.connect(self.canvas_save)
         fileMenu.addAction(saveAction)
 
-        openAction = QAction('Open', self)
+        openAction = QAction('Open', self
         openAction.setShortcut("Ctrl+O")
         openAction.triggered.connect(self.openImage)
         fileMenu.addAction(openAction)
@@ -249,7 +298,7 @@ class MainWindow(QtWidgets.QMainWindow):
         toolMenu.addAction(fillAction)
 
         colorMenu = menubar.addMenu('Color')
-
+        colorMenu = menubar.addMenu('Color')
         colorAction = QAction('Open Color Dialog', self)
         colorAction.triggered.connect(self.open_color_dialog)
         colorMenu.addAction(colorAction)
