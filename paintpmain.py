@@ -24,6 +24,9 @@ class Canvas(QtWidgets.QLabel):
     cell_size = defaultCellSize
     pen_size=1
     current_opac = 255
+    isDrawingLine = False
+    start_point = None 
+    end_point = None 
 
     def __init__(self, grid_size=32, cell_size=defaultCellSize):
         super().__init__()
@@ -60,7 +63,7 @@ class Canvas(QtWidgets.QLabel):
         self.image.fill(Qt.transparent)
         self.setPixmap(self.image)
         self.pen_color = QtGui.QColor('#000000')
-        self.set_custom_cursor("icons/pen.png")
+        self.set_custom_cursor("icons/cursor.png")
         self.caroPattern()  # Redraw the checkerboard pattern
         self.updateTransform()
 
@@ -117,6 +120,15 @@ class Canvas(QtWidgets.QLabel):
             self.DrawEvent(e)
         elif self.isErasing:
             self.EraserEvent(e)
+        elif self.isDrawingLine:
+            self.start_point = e.pos()
+
+    def mouseReleaseEvent(self, event):
+        if self.isDrawingLine and self.start_point:
+            self.end_point = event.pos()
+            self.draw_line(self.start_point, self.end_point)
+            self.start_point = None 
+            self.end_point = None
     
     def DrawEvent(self, e):
         x = int(e.x() / self.zoom_level // self.cell_size) * self.cell_size
@@ -159,6 +171,38 @@ class Canvas(QtWidgets.QLabel):
 
         self.updateTransform()
     
+    def draw_line(self, start_point, end_point):
+        start_x = (start_point.x() // self.cell_size) * self.cell_size
+        start_y = (start_point.y() // self.cell_size) * self.cell_size
+        end_x = (end_point.x() // self.cell_size) * self.cell_size
+        end_y = (end_point.y() // self.cell_size) * self.cell_size
+
+        dx = abs(end_x - start_x)
+        dy = abs(end_y - start_y)
+        sx = self.cell_size if start_x < end_x else -self.cell_size
+        sy = self.cell_size if start_y < end_y else -self.cell_size
+        err = dx - dy
+
+        painter = QtGui.QPainter(self.image)
+        x, y = start_x, start_y
+
+        while True:
+            painter.fillRect(x, y, self.cell_size*self.pen_size, self.cell_size*self.pen_size, self.pen_color)
+
+            if x == end_x and y == end_y:
+                break
+
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                x += sx
+            if e2 < dx:
+                err += dx
+                y += sy
+
+        painter.end()
+        self.update()
+    
     def resizeCanvas(self, grid_size_h=None, grid_size_w=None):
         if grid_size_h is None or grid_size_w is None:
             grid_size_w = grid_size_h
@@ -166,7 +210,7 @@ class Canvas(QtWidgets.QLabel):
     
     def changeToPen(self):
         self.setDrawingMode(1)
-        self.set_custom_cursor("icons/pen.png")
+        self.set_custom_cursor("icons/cursor.png")
 
     def changeToErase(self):
         self.setDrawingMode(2)
@@ -194,14 +238,22 @@ class Canvas(QtWidgets.QLabel):
             self.isDrawing = True
             self.isErasing = False
             self.isFilling = False
+            self.isDrawingLine = False
         elif action == 2: # Eraser
             self.isDrawing = False
             self.isErasing = True
             self.isFilling = False
+            self.isDrawingLine = False
         elif action == 3: # FIll
             self.isDrawing = False
             self.isErasing = False
             self.isFilling = True
+            self.isDrawingLine = False
+        elif action == 4:
+            self.isDrawing = False
+            self.isErasing = False
+            self.isFilling = False
+            self.isDrawingLine = True
 
     def set_custom_cursor(self, icon_path, size=32):
         cursor_pixmap = QtGui.QPixmap(icon_path).scaled(size, size, QtCore.Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -250,6 +302,12 @@ class Canvas(QtWidgets.QLabel):
         self.current_opac = value
         self.pen_color = color
         self.setFocus()
+    
+    def toggle_line_mode(self):
+        if not self.isDrawingLine:
+            self.setDrawingMode(4)
+        else:
+            self.setDrawingMode(1)
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -312,7 +370,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pen_size_slider.setValue(self.canvas.pen_size) 
         self.pen_size_slider.valueChanged.connect(self.change_pen_size)\
 
-        self.pen_size_value_label = QLabel(f"{self.canvas.pen_size}", self)
+        self.pen_size_value_label = QLabel(str(self.canvas.pen_size), self)
 
         # Opacity Slider
         self.opacity_label = QLabel("Opacity:", self)
@@ -360,6 +418,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.zoom_in_button.clicked.connect(lambda: self.canvas.zoom(2))
         self.zoom_out_button = QPushButton("Zoom Out", self)
         self.zoom_out_button.clicked.connect(lambda: self.canvas.zoom(0.5))
+        self.zoom_out_button = QPushButton("Draw line", self)
+        self.zoom_out_button.clicked.connect(lambda: self.canvas.setDrawingMode(4))
+
 
         self.mode_layout.addWidget(self.pen_button)
         self.mode_layout.addWidget(self.eraser_button)
@@ -381,7 +442,8 @@ class MainWindow(QtWidgets.QMainWindow):
         central_widget = QWidget(self)
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
-            
+    
+
     def create_menus(self):
         menubar = self.menuBar()
         fileMenu = menubar.addMenu('File')
