@@ -444,7 +444,7 @@ class MainWindow(QtWidgets.QMainWindow):
         saveAction.triggered.connect(self.saveCanvas)
         menubar.addAction(saveAction)
 
-        openAction = QAction('Open', self
+        openAction = QAction('Open', self)
         openAction.setShortcut("Ctrl+O")
         openAction.triggered.connect(self.openImage)
         menubar.addAction(openAction)
