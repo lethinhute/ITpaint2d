@@ -100,6 +100,7 @@ class Canvas(QtWidgets.QLabel):
         self.updateTransform()
 
     def mouseMoveEvent(self, e):
+        self.save_state()
         if self.isDrawing:
             self.DrawEvent(e)
         elif self.isErasing:
@@ -136,45 +137,28 @@ class Canvas(QtWidgets.QLabel):
         self.updateTransform()
 
     def fill_canvas_part(self, x, y):
-        # Only allow fill mode to function when 'fill' mode is selected
-        if not self.isFilling:
-            return
-
-        # Proceed with the fill operation
         img = self.image.toImage()
         target_color = img.pixelColor(x, y)
         if target_color == self.pen_color:
-            return  # Prevent infinite recursion if the color is the same as the pen
-
+            return # avoid inf recursion
         stack = [(x, y)]
         visited = set()
-
         while stack:
             cx, cy = stack.pop()
-
-            # Skip if already visited or out of bounds
             if (cx, cy) in visited:
-                continue
+                continue # skip already visited
             if not (0 <= cx < self.image.width() and 0 <= cy < self.image.height()):
-                continue
-
+                continue # check within bounds
             current_color = img.pixelColor(cx, cy)
             if current_color == target_color:
-                # Fill the pixel with the pen color
                 painter = QtGui.QPainter(self.image)
-                painter.setPen(QtCore.Qt.NoPen)
-                painter.setBrush(QtGui.QBrush(self.pen_color))
-                painter.drawRect(cx, cy, 1, 1)
+                painter.fillRect(cx, cy, self.cell_size, self.cell_size, self.pen_color)
                 painter.end()
-
-                # Mark the pixel as visited
                 visited.add((cx, cy))
+                stack.extend([(cx + self.cell_size, cy), (cx - self.cell_size, cy), 
+                            (cx, cy + self.cell_size), (cx, cy - self.cell_size)]) # add neighbors
 
-                # Add neighboring pixels to the stack
-                stack.extend([(cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)])
-
-        # Repaint the canvas after the fill
-        self.update()
+        self.updateTransform()
     
     def resizeCanvas(self, grid_size_h=None, grid_size_w=None):
         if grid_size_h is None or grid_size_w is None:
@@ -265,20 +249,6 @@ class Canvas(QtWidgets.QLabel):
     
     #def resizeCanvas (self, grid_size_h, grid_size_w):
     #    return self.pixmap().scaled(grid_size_h, grid_size_w, QtCore.Qt.KeepAspectRatio)
-
-    def changeToErase (self):
-        self.changeFunction(1)
-    def changeToPen (self):
-        self.changeFunction(2)
-    
-    def changeFunction (self, action):
-        if (action == 1):
-            self.isErasing = True
-            self.isDrawing = False  
-        if (action == 2):
-            self.isErasing = False
-            self.isDrawing = True
-
     def zoom(self, zoom_factor):
         self.zoom_level *= zoom_factor
         self.zoom_level = max(self.MIN_ZOOM, min(self.zoom_level, self.MAX_ZOOM))
