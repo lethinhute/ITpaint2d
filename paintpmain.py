@@ -22,6 +22,8 @@ class Canvas(QtWidgets.QLabel):
     MIN_ZOOM = 0.125
     MAX_ZOOM = 8.0
     cell_size = defaultCellSize
+    pen_size=1
+    current_opac = 255
 
     def __init__(self, grid_size=32, cell_size=defaultCellSize):
         super().__init__()
@@ -85,6 +87,7 @@ class Canvas(QtWidgets.QLabel):
     def set_pen_color(self, color):
         self.pen_color = QtGui.QColor(color)
         self.current_color = color
+        self.change_opac(self.current_opac)
 
     def clear_canvas(self, grid_size, cell_size):
         self.grid_size = grid_size
@@ -114,14 +117,12 @@ class Canvas(QtWidgets.QLabel):
             self.DrawEvent(e)
         elif self.isErasing:
             self.EraserEvent(e)
-
-    # def mouseReleaseEvent(self, e):
     
     def DrawEvent(self, e):
         x = int(e.x() / self.zoom_level // self.cell_size) * self.cell_size
         y = int(e.y() / self.zoom_level // self.cell_size) * self.cell_size
         painter = QtGui.QPainter(self.image)
-        painter.fillRect(x, y, self.cell_size, self.cell_size, self.pen_color)
+        painter.fillRect(x, y, self.cell_size*self.pen_size, self.cell_size*self.pen_size, self.pen_color)
         painter.end()
         self.updateTransform()
 
@@ -138,15 +139,15 @@ class Canvas(QtWidgets.QLabel):
         img = self.image.toImage()
         target_color = img.pixelColor(x, y)
         if target_color == self.pen_color:
-            return # avoid inf recursion
+            return 
         stack = [(x, y)]
         visited = set()
         while stack:
             cx, cy = stack.pop()
             if (cx, cy) in visited:
-                continue # skip already visited
+                continue
             if not (0 <= cx < self.image.width() and 0 <= cy < self.image.height()):
-                continue # check within bounds
+                continue 
             current_color = img.pixelColor(cx, cy)
             if current_color == target_color:
                 painter = QtGui.QPainter(self.image)
@@ -154,7 +155,7 @@ class Canvas(QtWidgets.QLabel):
                 painter.end()
                 visited.add((cx, cy))
                 stack.extend([(cx + self.cell_size, cy), (cx - self.cell_size, cy), 
-                            (cx, cy + self.cell_size), (cx, cy - self.cell_size)]) # add neighbors
+                            (cx, cy + self.cell_size), (cx, cy - self.cell_size)])
 
         self.updateTransform()
     
@@ -226,17 +227,7 @@ class Canvas(QtWidgets.QLabel):
             self.setPixmap(self.image)
             self.updateTransform()
 
-    def EraserEevent (self, e):
-        x = (e.x() // self.cell_size) * self.cell_size
-        y = (e.y() // self.cell_size) * self.cell_size
-        painter = QtGui.QPainter(self.pixmap())
-        painter.setCompositionMode(QtGui.QPainter.CompositionMode_Clear)
-        painter.fillRect(x, y, self.cell_size*3, self.cell_size*3, Qt.transparent)
-        painter.end()
-        self.update()
-
     def fill_canvas(self):
-        # Fill the entire canvas with the current pen color
         painter = QtGui.QPainter(self.pixmap())
         painter.fillRect(0, 0, self.width, self.height, self.pen_color)
         painter.end()
@@ -244,9 +235,6 @@ class Canvas(QtWidgets.QLabel):
 
     def resizeCanvas (self, grid_size):
         return self.pixmap().scaled(grid_size, grid_size, QtCore.Qt.KeepAspectRatio)
-    
-    #def resizeCanvas (self, grid_size_h, grid_size_w):
-    #    return self.pixmap().scaled(grid_size_h, grid_size_w, QtCore.Qt.KeepAspectRatio)
     def zoom(self, zoom_factor):
         self.zoom_level *= zoom_factor
         self.zoom_level = max(self.MIN_ZOOM, min(self.zoom_level, self.MAX_ZOOM))
@@ -255,6 +243,13 @@ class Canvas(QtWidgets.QLabel):
     def reset_zoom(self):
         self.zoom_level = 1
         self.updateTransform()
+    
+    def change_opac(self, value):
+        color = self.pen_color
+        color.setAlpha(value)
+        self.current_opac = value
+        self.pen_color = color
+        self.setFocus()
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -262,7 +257,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle("Paint")
         self.canvas = Canvas()
-        self.canvas.setParent(self)  # Ensure canvas has reference to MainWindow
+        self.canvas.setParent(self) 
         self.setup_ui()
         self.create_menus()
         self.adjust_window_size_to_canvas()
@@ -273,16 +268,21 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+="), self).activated.connect(lambda: self.canvas.zoom(2))
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+-"), self).activated.connect(lambda: self.canvas.zoom(0.5))
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+0"), self).activated.connect(self.canvas.reset_zoom)
+    
+    def change_pen_size(self, value):
+        """Update the pen size in the canvas."""
+        self.canvas.pen_size = value
+        self.pen_size_value_label.setText(f"{value}")
+        self.canvas.setFocus()
+
+    def change_opacity(self, value):
+        self.opacity_value_label.setText(f"{value}")
+        self.canvas.change_opac(value)
 
     def setup_ui(self):
-        # Create the main top bar for both color picker and functional buttons
         self.top_bar = QWidget(self)
         self.top_bar_layout = QHBoxLayout(self.top_bar)
-
-        # First section: Color Picker (predefined colors)
         self.color_picker_layout = QVBoxLayout()
-        
-        # First row of predefined colors (more choices)
         self.color_row_1 = QHBoxLayout()
         colors_row_1 = [
             '#000000', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#00FFFF', 
@@ -294,7 +294,6 @@ class MainWindow(QtWidgets.QMainWindow):
             color_button.clicked.connect(lambda _, col=color: self.canvas.set_pen_color(col))
             self.color_row_1.addWidget(color_button)
 
-        # Second row of predefined colors (more choices)
         self.color_row_2 = QHBoxLayout()
         colors_row_2 = [
             '#FFFFFF', '#C0C0C0', '#808080', '#800000', '#008000', '#A52A2A', 
@@ -306,30 +305,51 @@ class MainWindow(QtWidgets.QMainWindow):
             color_button.clicked.connect(lambda _, col=color: self.canvas.set_pen_color(col))
             self.color_row_2.addWidget(color_button)
 
-        # Add the rows to the main color picker layout
+        # Pen Size Slider
+        self.pen_size_label = QLabel("Pen Size:", self)
+        self.pen_size_slider = QSlider(Qt.Horizontal, self)
+        self.pen_size_slider.setRange(1, 10) 
+        self.pen_size_slider.setValue(self.canvas.pen_size) 
+        self.pen_size_slider.valueChanged.connect(self.change_pen_size)\
+
+        self.pen_size_value_label = QLabel(f"{self.canvas.pen_size}", self)
+
+        # Opacity Slider
+        self.opacity_label = QLabel("Opacity:", self)
+        self.opacity_slider = QSlider(Qt.Horizontal, self)
+        self.opacity_slider.setRange(0, 255)  
+        self.opacity_slider.setValue(255) 
+        self.opacity_slider.valueChanged.connect(self.change_opacity)
+
+        self.opacity_value_label = QLabel(f"{255}", self)
+
+        # Add sliders to a layout
+        self.sliders_layout = QVBoxLayout()
+        self.sliders_layout.addWidget(self.pen_size_label)
+        self.sliders_layout.addWidget(self.pen_size_slider)
+        self.sliders_layout.addWidget(self.opacity_label)
+        self.sliders_layout.addWidget(self.opacity_slider)
+
+        # Add layouts to the top bar
+        self.top_bar_layout.addLayout(self.color_picker_layout)
+        self.top_bar_layout.addLayout(self.sliders_layout)
+
         self.color_picker_layout.addLayout(self.color_row_1)
         self.color_picker_layout.addLayout(self.color_row_2)
 
-        # Create custom color button (smaller and moved to the right)
         self.custom_color_button = QPushButton("Custom Color", self)
         self.custom_color_button.clicked.connect(self.open_color_dialog)
-        self.custom_color_button.setFixedSize(100, 30)  # Smaller button size
+        self.custom_color_button.setFixedSize(100, 30) 
         self.custom_color_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-
-        # Add custom color button to the second row, aligned to the right
         self.color_row_2.addWidget(self.custom_color_button, alignment=Qt.AlignRight)
 
-        # Spacer to separate color picker section from function buttons
         self.spacer = QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
 
-        # Add the color picker layout and spacer to the top bar
         self.top_bar_layout.addLayout(self.color_picker_layout)
         self.top_bar_layout.addItem(self.spacer)
 
-        # Second section: Mode buttons (pen, eraser, fill, zoom in, zoom out)
         self.mode_layout = QVBoxLayout()
 
-        # Mode buttons
         self.pen_button = QPushButton("Pen", self)
         self.pen_button.clicked.connect(lambda: self.canvas.set_mode("pen"))
         self.eraser_button = QPushButton("Eraser", self)
@@ -341,29 +361,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.zoom_out_button = QPushButton("Zoom Out", self)
         self.zoom_out_button.clicked.connect(lambda: self.canvas.zoom(0.5))
 
-        # Add mode buttons to layout
         self.mode_layout.addWidget(self.pen_button)
         self.mode_layout.addWidget(self.eraser_button)
         self.mode_layout.addWidget(self.fill_button)
         self.mode_layout.addWidget(self.zoom_in_button)
         self.mode_layout.addWidget(self.zoom_out_button)
 
-        # Add the mode layout to the top bar (functional buttons)
         self.top_bar_layout.addLayout(self.mode_layout)
 
-        # Create the scroll area for the canvas
         self.scroll_area = QtWidgets.QScrollArea()
         self.scroll_area.setWidget(self.canvas)
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setAlignment(Qt.AlignCenter)  # Keep canvas centered
-        self.scroll_area.setFrameShape(QtWidgets.QFrame.NoFrame)  # No extra frame
+        self.scroll_area.setAlignment(Qt.AlignCenter) 
+        self.scroll_area.setFrameShape(QtWidgets.QFrame.NoFrame) 
 
-        # Set the main layout for the window
         main_layout = QVBoxLayout()
-        main_layout.addWidget(self.top_bar)  # Add the top bar with color picker and functional buttons
-        main_layout.addWidget(self.scroll_area)  # Canvas below the top bar
-
-        # Create the central widget and set the main layout
+        main_layout.addWidget(self.top_bar)  
+        main_layout.addWidget(self.scroll_area) 
         central_widget = QWidget(self)
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
