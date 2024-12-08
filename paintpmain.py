@@ -418,8 +418,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.zoom_in_button.clicked.connect(lambda: self.canvas.zoom(2))
         self.zoom_out_button = QPushButton("Zoom Out", self)
         self.zoom_out_button.clicked.connect(lambda: self.canvas.zoom(0.5))
-        self.zoom_out_button = QPushButton("Draw line", self)
-        self.zoom_out_button.clicked.connect(lambda: self.canvas.setDrawingMode(4))
+        self.draw_line_button = QPushButton("Draw line", self)
+        self.draw_line_button.clicked.connect(lambda: self.canvas.setDrawingMode(4))
 
 
         self.mode_layout.addWidget(self.pen_button)
@@ -427,6 +427,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mode_layout.addWidget(self.fill_button)
         self.mode_layout.addWidget(self.zoom_in_button)
         self.mode_layout.addWidget(self.zoom_out_button)
+        self.mode_layout.addWidget(self.draw_line_button)
 
         self.top_bar_layout.addLayout(self.mode_layout)
 
@@ -543,11 +544,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
             self.canvas.clear_canvas(gridsize, defaultCellSize)
 
-            # prevent the new window from expanding past the screen
             new_width = gridsize * self.canvas.cell_size + self.canvas.frameWidth() * 2
             new_height = gridsize * self.canvas.cell_size + self.menuBar().height() + self.canvas.frameWidth() * 2
             screen_geometry = QApplication.primaryScreen().geometry()
-            max_width = screen_geometry.width() - 50  # 50px margin to avoid overflow
+            max_width = screen_geometry.width() - 50  
             max_height = screen_geometry.height() - 50 
             new_width = min(new_width, max_width)
             new_height = min(new_height, max_height)
