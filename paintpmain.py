@@ -160,7 +160,7 @@ class Canvas(QtWidgets.QLabel):
         y = int(e.y() / self.zoom_level // self.cell_size) * self.cell_size
 
         painter = QtGui.QPainter(self.image)
-        painter.fillRect(x, y, self.cell_size, self.cell_size, self.pen_color)
+        painter.fillRect(x, y, self.cell_size*self.pen_size, self.cell_size*self.pen_size, self.pen_color)
         painter.end()
         self.updateTransform()
 
@@ -177,15 +177,15 @@ class Canvas(QtWidgets.QLabel):
         img = self.image.toImage()
         target_color = img.pixelColor(x, y)
         if target_color == self.pen_color:
-            return # avoid inf recursion
+            return 
         stack = [(x, y)]
         visited = set()
         while stack:
             cx, cy = stack.pop()
             if (cx, cy) in visited:
-                continue # skip already visited
+                continue
             if not (0 <= cx < self.image.width() and 0 <= cy < self.image.height()):
-                continue # check within bounds
+                continue 
             current_color = img.pixelColor(cx, cy)
             if current_color == target_color:
                 painter = QtGui.QPainter(self.image)
