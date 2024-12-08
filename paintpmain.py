@@ -35,11 +35,8 @@ class Canvas(QtWidgets.QLabel):
 
     def caroPattern(self):
         painter = QtGui.QPainter(self)
-
-        # Scale the painter to reflect the zoom level
         painter.scale(self.zoom_level, self.zoom_level)
 
-        # Checkerboard background scaled correctly
         color1 = QtGui.QColor('#e0e0e0')
         color2 = QtGui.QColor('#ffffff')
 
@@ -50,7 +47,6 @@ class Canvas(QtWidgets.QLabel):
 
         painter.drawPixmap(0, 0, self.image)
         painter.end()
-
 
     def paintEvent(self, event):
         self.caroPattern()
@@ -93,10 +89,12 @@ class Canvas(QtWidgets.QLabel):
     def clear_canvas(self, grid_size, cell_size):
         self.grid_size = grid_size
         self.cell_size = cell_size
+        self.width = grid_size*cell_size
+        self.height = self.width
         self.image = QtGui.QPixmap(grid_size * cell_size, grid_size * cell_size)
         self.image.fill(Qt.transparent)
         self.setPixmap(self.image)
-        self.caroPattern()  # Redraw checkerboard pattern with new grid size and cell size
+        self.caroPattern()  
         self.updateTransform()
 
     def mouseMoveEvent(self, e):
@@ -252,7 +250,6 @@ class Canvas(QtWidgets.QLabel):
     def zoom(self, zoom_factor):
         self.zoom_level *= zoom_factor
         self.zoom_level = max(self.MIN_ZOOM, min(self.zoom_level, self.MAX_ZOOM))
-
         self.updateTransform()
 
     def reset_zoom(self):
@@ -340,9 +337,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fill_button = QPushButton("Fill", self)
         self.fill_button.clicked.connect(lambda: self.canvas.set_mode("fill"))
         self.zoom_in_button = QPushButton("Zoom In", self)
-        self.zoom_in_button.clicked.connect(lambda: self.canvas.set_zoom("in"))
+        self.zoom_in_button.clicked.connect(lambda: self.canvas.zoom(2))
         self.zoom_out_button = QPushButton("Zoom Out", self)
-        self.zoom_out_button.clicked.connect(lambda: self.canvas.set_zoom("out"))
+        self.zoom_out_button.clicked.connect(lambda: self.canvas.zoom(0.5))
 
         # Add mode buttons to layout
         self.mode_layout.addWidget(self.pen_button)
@@ -417,7 +414,6 @@ class MainWindow(QtWidgets.QMainWindow):
         toolMenu.addAction(fillAction)
 
         colorMenu = menubar.addMenu('Color')
-        colorMenu = menubar.addMenu('Color')
         colorAction = QAction('Open Color Dialog', self)
         colorAction.triggered.connect(self.open_color_dialog)
         colorMenu.addAction(colorAction)
@@ -490,8 +486,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def canvas_save(self):
         filePath, _ = QFileDialog.getSaveFileName(self, "Save Image", "", "PNG(*.png);;JPEG(*.jpg *.jpeg);;All Files(*.*) ")
         if filePath:
-            scaled_image = self.canvas.image.scaled(self.canvas.width // self.canvas.grid_size, 
-                                                    self.canvas.height // self.canvas.grid_size, 
+            scaled_image = self.canvas.image.scaled(self.canvas.width // self.canvas.cell_size, 
+                                                    self.canvas.height // self.canvas.cell_size, 
                                                     QtCore.Qt.IgnoreAspectRatio)
             scaled_image.save(filePath)
 
