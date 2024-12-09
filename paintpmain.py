@@ -1,41 +1,34 @@
 import sys
-import PyQt5
-from PyQt5 import QtCore, QtGui, QtWidgets
+import PyQt5 # unused
+from PyQt5 import QtCore, QtGui, QtWidgets # unused
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import QPixmap, QKeySequence
+from PyQt5.QtGui import *
+from functools import partial
 
 """This is a pixel art paint app."""
 
-default_grid_size = int(32)
+default_grid_size = int(64)
 default_cell_size = int(10)
  
-class Canvas(QtWidgets.QLabel):
-    current_color = "#000000"
-    current_eraser = Qt.transparent
-    width = 0
-    height = 0
-
+class Canvas(QLabel):
     isDrawing = True
     isErasing = False
     isFilling = False
+    isLine = False
+    isRectangle = False
+    isEllipse = False
     MIN_ZOOM = 0.125
     MAX_ZOOM = 8.0
-
-    cell_size = default_cell_size
+    zoomChanged = pyqtSignal(float)
     pen_size = 1
     current_opac = 255
-    isDrawingLine = False
-    start_point = None 
-    end_point = None 
 
     def __init__(self, grid_size=default_grid_size, cell_size=default_cell_size):
         super().__init__()
         self.grid_size = grid_size
         self.cell_size = cell_size
         self.zoom_level = 1
-        self.border_buffer = 20
         self.undo_stack = []
         self.redo_stack = []
         self.setMouseTracking(True)
@@ -45,35 +38,27 @@ class Canvas(QtWidgets.QLabel):
     def initCanvas(self):
         self.width, self.height = self.grid_size * self.cell_size, self.grid_size * self.cell_size
         self.setFixedSize(self.width, self.height)
-        self.image = QtGui.QPixmap(self.width, self.height)
+        self.image = QPixmap(self.width, self.height)
         self.image.fill(Qt.transparent)
         self.setPixmap(self.image)
-        self.pen_color = QtGui.QColor('#000000')
+        self.pen_color = QColor("#000000")
         self.setCustomCursor("icons/cursor.png")
         self.createCaroPattern()
         self.updateTransform()
-        self.setStyleSheet("""
-            QLabel {
-                border: 0px solid gray;
-                padding: 0px;  /* Ensure no padding */
-                margin: 0px;   /* Ensure no margin */
-            }
-        """)
 
-    def updateTransform(self):
+    def updateTransform(self): # note: no scaling of QPixmap happens here directly because painter/paintEvent handles scaling
         width = int(self.grid_size * self.cell_size * self.zoom_level)
         height = int(self.grid_size * self.cell_size * self.zoom_level)
         self.setFixedSize(width, height)
 
-        # No scaling of QPixmap directly here, because the painter handles scaling
-        self.update()  # Trigger repaint with new scaling
+        self.update()  # trigger repaint with new scaling
     
     def createCaroPattern(self):
-        painter = QtGui.QPainter(self)
+        painter = QPainter(self)
         painter.scale(self.zoom_level, self.zoom_level)
 
-        color1 = QtGui.QColor('#e0e0e0')
-        color2 = QtGui.QColor('#ffffff')
+        color1 = QColor("#E0E0E0")
+        color2 = QColor("#FFFFFF")
 
         for y in range(0, self.height, self.cell_size):
             for x in range(0, self.width, self.cell_size):
@@ -84,7 +69,7 @@ class Canvas(QtWidgets.QLabel):
         painter.end()
 
     def setPenColor(self, color):
-        self.pen_color = QtGui.QColor(color)
+        self.pen_color = QColor(color)
         self.current_color = color
         self.changeOpac(self.current_opac)
 
@@ -93,7 +78,7 @@ class Canvas(QtWidgets.QLabel):
         self.cell_size = cell_size
         self.width = grid_size * cell_size
         self.height = self.width
-        self.image = QtGui.QPixmap(grid_size * cell_size, grid_size * cell_size)
+        self.image = QPixmap(grid_size * cell_size, grid_size * cell_size)
 
         self.image.fill(Qt.transparent)
         self.setPixmap(self.image)
@@ -103,16 +88,17 @@ class Canvas(QtWidgets.QLabel):
     def mousePressEvent(self, e):
         if e.buttons() & Qt.LeftButton:
             self.saveState()
-            if self.isFilling:
-                x = int((e.x() / self.zoom_level) // self.cell_size) * self.cell_size
-                y = int((e.y() / self.zoom_level) // self.cell_size) * self.cell_size
-                self.fillEvent(x, y)
-            elif self.isDrawing:
+            self.start_pos = self.snapToGrid(e.pos())
+            if self.isDrawing:
                 self.drawEvent(e)
             elif self.isErasing:
                 self.eraseEvent(e)
-            elif self.isDrawingLine:
-                self.start_point = e.pos()
+            elif self.isFilling:
+                x = int((e.x() / self.zoom_level) // self.cell_size) * self.cell_size
+                y = int((e.y() / self.zoom_level) // self.cell_size) * self.cell_size
+                self.fillEvent(x, y)
+            elif self.isLine or self.isRectangle or self.isEllipse:
+                self.temp_image = self.image.copy()
 
     def mouseMoveEvent(self, e):
         cell_size_zoomed = self.cell_size * self.zoom_level
@@ -128,49 +114,93 @@ class Canvas(QtWidgets.QLabel):
                 self.drawEvent(e)
             elif self.isErasing:
                 self.eraseEvent(e)
+            elif self.isLine or self.isRectangle or self.isEllipse:
+                self.end_pos = self.snapToGrid(e.pos())
+                self.image = self.temp_image.copy()
+                self.drawShapePreview()
+                self.updateTransform()
 
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.LeftButton:
-            if self.isDrawingLine and self.start_point:
-                    self.end_point = e.pos()
-                    self.drawLine(self.start_point, self.end_point)
-                    self.start_point = None 
-                    self.end_point = None
+            if self.isLine or self.isRectangle or self.isEllipse:
+                self.end_pos = self.snapToGrid(e.pos())
+                self.drawShapeFinal()
+                self.updateTransform()
+            self.last_pos = None
 
     def paintEvent(self, e):
         super().paintEvent(e)
         self.createCaroPattern()
+        painter = QPainter(self)
 
-        painter = QtGui.QPainter(self) # hover highlighting
+        painter.fillRect(self.rect(), Qt.transparent) # proper reset when updating
+        painter.scale(self.zoom_level, self.zoom_level)
         painter.drawPixmap(0, 0, self.pixmap())
-        if self.hover_cell:
-            cell_size_zoomed = self.cell_size * self.zoom_level
+
+        if self.hover_cell: # hover
+            cell_size_zoomed = self.cell_size
             x, y = self.hover_cell
-            hover_x = x * cell_size_zoomed
-            hover_y = y * cell_size_zoomed
-
-            painter.setBrush(QtGui.QColor(50, 25, 25, 100))
-            painter.setPen(QtGui.QColor(50, 25, 25))
-            painter.drawRect(int(hover_x), int(hover_y), int(cell_size_zoomed), int(cell_size_zoomed))
+            painter.setBrush(QColor(50, 25, 25, 100))
+            painter.setPen(QColor(50, 25, 25))
+            painter.drawRect(x * cell_size_zoomed, y * cell_size_zoomed, cell_size_zoomed, cell_size_zoomed)
 
         painter.end()
-    
+
+    def drawOrEraseLine(self, start_pos, end_pos, painter, erase=False):
+        x1, y1 = start_pos.x(), start_pos.y()
+        x2, y2 = end_pos.x(), end_pos.y()
+        dx = abs(x2 - x1)
+        dy = abs(y2 - y1)
+        sx = self.cell_size if x1 < x2 else -self.cell_size
+        sy = self.cell_size if y1 < y2 else -self.cell_size
+        err = dx - dy
+
+        while True:
+            size = self.cell_size * self.pen_size
+            if erase:
+                painter.setCompositionMode(QPainter.CompositionMode_Clear)
+                painter.fillRect(x1, y1, size, size, Qt.transparent)
+            else:
+                painter.fillRect(x1, y1, size, size, self.pen_color)
+
+            if x1 == x2 and y1 == y2:
+                break
+            e2 = err * 2
+            if e2 > -dy:
+                err -= dy
+                x1 += sx
+            if e2 < dx:
+                err += dx
+                y1 += sy
+
     def drawEvent(self, e):
-        x = int(e.x() / self.zoom_level // self.cell_size) * self.cell_size
-        y = int(e.y() / self.zoom_level // self.cell_size) * self.cell_size
+        current_x = int(e.x() / self.zoom_level // self.cell_size) * self.cell_size
+        current_y = int(e.y() / self.zoom_level // self.cell_size) * self.cell_size
+        current_pos = QPoint(current_x, current_y)
 
-        painter = QtGui.QPainter(self.image)
-        painter.fillRect(x, y, self.cell_size*self.pen_size, self.cell_size*self.pen_size, self.pen_color)
+        if not hasattr(self, "last_pos") or self.last_pos is None:
+            self.last_pos = current_pos
+
+        painter = QPainter(self.image)
+        self.drawOrEraseLine(self.last_pos, current_pos, painter, erase=False)
         painter.end()
+
+        self.last_pos = current_pos
         self.updateTransform()
 
     def eraseEvent(self, e):
-        x = int((e.x() / self.zoom_level) // self.cell_size) * self.cell_size
-        y = int((e.y() / self.zoom_level) // self.cell_size) * self.cell_size
-        painter = QtGui.QPainter(self.image)
-        painter.setCompositionMode(QtGui.QPainter.CompositionMode_Clear)
-        painter.fillRect(x, y, self.cell_size * 3, self.cell_size * 3, Qt.transparent)
+        current_x = int((e.x() / self.zoom_level) // self.cell_size) * self.cell_size
+        current_y = int((e.y() / self.zoom_level) // self.cell_size) * self.cell_size
+        current_pos = QPoint(current_x, current_y)
+
+        if not hasattr(self, "last_pos") or self.last_pos is None:
+            self.last_pos = current_pos
+
+        painter = QPainter(self.image)
+        self.drawOrEraseLine(self.last_pos, current_pos, painter, erase=True)
         painter.end()
+
+        self.last_pos = current_pos
         self.updateTransform()
 
     def fillEvent(self, x, y):
@@ -188,50 +218,121 @@ class Canvas(QtWidgets.QLabel):
                 continue 
             current_color = img.pixelColor(cx, cy)
             if current_color == target_color:
-                painter = QtGui.QPainter(self.image)
+                painter = QPainter(self.image)
                 painter.fillRect(cx, cy, self.cell_size, self.cell_size, self.pen_color)
                 painter.end()
                 visited.add((cx, cy))
                 stack.extend([(cx + self.cell_size, cy), (cx - self.cell_size, cy), 
                             (cx, cy + self.cell_size), (cx, cy - self.cell_size)])
         self.updateTransform()
-    
-    def drawLine(self, start_point, end_point):
-        start_x = (start_point.x() // self.cell_size) * self.cell_size
-        start_y = (start_point.y() // self.cell_size) * self.cell_size
-        end_x = (end_point.x() // self.cell_size) * self.cell_size
-        end_y = (end_point.y() // self.cell_size) * self.cell_size
 
-        dx = abs(end_x - start_x)
-        dy = abs(end_y - start_y)
-        sx = self.cell_size if start_x < end_x else -self.cell_size
-        sy = self.cell_size if start_y < end_y else -self.cell_size
+    def snapToGrid(self, pos):
+        x = int((pos.x() / self.zoom_level) // self.cell_size) * self.cell_size
+        y = int((pos.y() / self.zoom_level) // self.cell_size) * self.cell_size
+        return QPoint(x, y)
+    
+    def drawShapePreview(self):
+        painter = QPainter(self.image)
+        painter.setPen(QPen(self.pen_color, 1))
+        if self.isLine:
+            self.drawLine(painter, self.start_pos, self.end_pos)
+        elif self.isRectangle:
+            self.drawRectangle(painter, self.start_pos, self.end_pos)
+        elif self.isEllipse:
+            self.drawEllipse(painter, self.start_pos, self.end_pos)
+        painter.end()
+        
+    def drawShapeFinal(self):
+        painter = QPainter(self.image)
+        painter.setPen(QPen(self.pen_color, 1))
+        painter.setBrush(self.pen_color)
+        if self.isLine:
+            self.drawLine(painter, self.start_pos, self.end_pos, finalize=True)
+        elif self.isRectangle:
+            self.drawRectangle(painter, self.start_pos, self.end_pos)
+        elif self.isEllipse:
+            self.drawEllipse(painter, self.start_pos, self.end_pos)
+        painter.end()
+
+    def drawLine(self, painter, start, end, finalize=False): # Bresenham's algorithm
+        x1, y1 = start.x() // self.cell_size, start.y() // self.cell_size
+        x2, y2 = end.x() // self.cell_size, end.y() // self.cell_size
+        dx = abs(x2 - x1)
+        dy = abs(y2 - y1)
+        sx = 1 if x1 < x2 else -1
+        sy = 1 if y1 < y2 else -1
         err = dx - dy
 
-        painter = QtGui.QPainter(self.image)
-        x, y = start_x, start_y
-
         while True:
-            painter.fillRect(x, y, self.cell_size*self.pen_size, self.cell_size*self.pen_size, self.pen_color)
-
-            if x == end_x and y == end_y:
+            cell_x = x1 * self.cell_size
+            cell_y = y1 * self.cell_size
+            painter.fillRect(cell_x, cell_y, self.cell_size, self.cell_size, self.pen_color)
+            if x1 == x2 and y1 == y2:
                 break
-
-            e2 = 2 * err
+            e2 = err * 2
             if e2 > -dy:
                 err -= dy
-                x += sx
+                x1 += sx
             if e2 < dx:
                 err += dx
-                y += sy
+                y1 += sy
 
-        painter.end()
-        self.update()
-    
-    def resizeCanvas(self, grid_size_h=None, grid_size_w=None):
-        if grid_size_h is None or grid_size_w is None:
-            grid_size_w = grid_size_h
-        return self.pixmap().scaled(grid_size_w, grid_size_h, QtCore.Qt.KeepAspectRatio)
+    def drawRectangle(self, painter, start, end):
+        x1, y1 = start.x(), start.y()
+        x2, y2 = end.x(), end.y()
+        x1, x2 = min(x1, x2), max(x1, x2)
+        y1, y2 = min(y1, y2), max(y1, y2)
+
+        for x in range(x1, x2 + self.cell_size, self.cell_size):
+            painter.fillRect(x, y1, self.cell_size, self.cell_size, self.pen_color)
+            painter.fillRect(x, y2, self.cell_size, self.cell_size, self.pen_color)
+        
+        for y in range(y1 + self.cell_size, y2, self.cell_size):
+            painter.fillRect(x1, y, self.cell_size, self.cell_size, self.pen_color)
+            painter.fillRect(x2, y, self.cell_size, self.cell_size, self.pen_color)
+
+    def drawEllipse(self, painter, start, end): # midpoint algorithm
+        x1, y1 = start.x(), start.y()
+        x2, y2 = end.x(), end.y()
+        x1, x2 = min(x1, x2), max(x1, x2)
+        y1, y2 = min(y1, y2), max(y1, y2)
+
+        rx = (x2 - x1) // 2
+        ry = (y2 - y1) // 2
+        cx = x1 + rx
+        cy = y1 + ry
+
+        x, y = 0, ry
+        dx, dy = 0, 2 * rx * rx * y
+        p1 = ry * ry - (rx * rx * ry) + (0.25 * rx * rx)
+        while dx < dy:
+            self.fillEllipseCells(painter, cx, cy, x, y)
+            x += self.cell_size
+            dx += 2 * ry * ry
+            if p1 < 0:
+                p1 += dx + ry * ry
+            else:
+                y -= self.cell_size
+                dy -= 2 * rx * rx
+                p1 += dx - dy + ry * ry
+
+        p2 = (ry * ry) * (x + 0.5) ** 2 + (rx * rx) * (y - 1) ** 2 - (rx * rx * ry * ry)
+        while y >= 0:
+            self.fillEllipseCells(painter, cx, cy, x, y)
+            y -= self.cell_size
+            dy -= 2 * rx * rx
+            if p2 > 0:
+                p2 += rx * rx - dy
+            else:
+                x += self.cell_size
+                dx += 2 * ry * ry
+                p2 += dx - dy + rx * rx
+
+    def fillEllipseCells(self, painter, cx, cy, x, y):
+        painter.fillRect(cx + x, cy + y, self.cell_size, self.cell_size, self.pen_color)
+        painter.fillRect(cx - x, cy + y, self.cell_size, self.cell_size, self.pen_color)
+        painter.fillRect(cx + x, cy - y, self.cell_size, self.cell_size, self.pen_color)
+        painter.fillRect(cx - x, cy - y, self.cell_size, self.cell_size, self.pen_color)
     
     def changeToPen(self):
         self.setDrawingMode(1)
@@ -245,19 +346,33 @@ class Canvas(QtWidgets.QLabel):
         self.setDrawingMode(3)
         self.setCustomCursor("icons/fill.png")
 
+    def changeToLine(self):
+        self.setDrawingMode(4)
+        self.setCustomCursor("icons/cursor_shape.png")
+
+    def changeToRectangle(self):
+        self.setDrawingMode(5)
+        self.setCustomCursor("icons/cursor_shape.png")
+    
+    def changeToEllipse(self):
+        self.setDrawingMode(6)
+        self.setCustomCursor("icons/cursor_shape.png")
+
     def setDrawingMode(self, action):
         self.isDrawing = action == 1
         self.isErasing = action == 2
         self.isFilling = action == 3
         self.isLine = action == 4
         self.isRectangle = action == 5
-        self.isCircle = action == 6
+        self.isEllipse = action == 6
 
     def setCustomCursor(self, icon_path, size=32):
-        cursor_pixmap = QtGui.QPixmap(icon_path).scaled(size, size, QtCore.Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.setCursor(QtGui.QCursor(cursor_pixmap))
+        cursor_pixmap = QPixmap(icon_path).scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.setCursor(QCursor(cursor_pixmap))
 
     def saveState(self):
+        if self.undo_stack and self.image.toImage() == self.undo_stack[-1].toImage(): # avoid duplicates
+            return
         if len(self.undo_stack) > 50:
             self.undo_stack.pop(0)
         self.undo_stack.append(self.image.copy())
@@ -265,29 +380,33 @@ class Canvas(QtWidgets.QLabel):
 
     def undo(self):
         if self.undo_stack:
+            if hasattr(self, "last_pos") and self.last_pos:
+                self.saveState() # handles active drawing
             self.redo_stack.append(self.image.copy())
             self.image = self.undo_stack.pop()
-            self.setPixmap(self.image)
-            self.updateTransform()
+            self.update()
 
     def redo(self):
         if self.redo_stack:
+            if hasattr(self, "last_pos") and self.last_pos:  # handles active drawing
+                self.saveState()
             self.undo_stack.append(self.image.copy())
             self.image = self.redo_stack.pop()
-            self.setPixmap(self.image)
-            self.updateTransform()
-
+            self.update()
+    
     def resizeCanvas(self, grid_size):
-        return self.pixmap().scaled(grid_size, grid_size, QtCore.Qt.KeepAspectRatio)
+        return self.pixmap().scaled(grid_size, grid_size, Qt.KeepAspectRatio)
     
     def zoom(self, zoom_factor):
         self.zoom_level *= zoom_factor
         self.zoom_level = max(self.MIN_ZOOM, min(self.zoom_level, self.MAX_ZOOM))
         self.updateTransform()
+        self.zoomChanged.emit(self.zoom_level)
 
     def resetZoom(self):
         self.zoom_level = 1
         self.updateTransform()
+        self.zoomChanged.emit(self.zoom_level)
     
     def changeOpac(self, value):
         color = self.pen_color
@@ -295,14 +414,8 @@ class Canvas(QtWidgets.QLabel):
         self.current_opac = value
         self.pen_color = color
         self.setFocus()
-    
-    def toggle_line_mode(self):
-        if not self.isDrawingLine:
-            self.setDrawingMode(4)
-        else:
-            self.setDrawingMode(1)
 
-class MainWindow(QtWidgets.QMainWindow):
+class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Paint")
@@ -310,141 +423,164 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas.setParent(self) 
         self.setupUI()
         self.createMenus()
-        self.createToolbar()
-        self.adjustZoomToFitCanvas()
         self.showMaximized()
-    
-    def changePenSize(self, value):
-        self.canvas.pen_size = value
-        self.pen_size_value_label.setText(f"{value}")
-        self.canvas.setFocus()
-
-    def changeOpacity(self, value):
-        self.opacity_value_label.setText(f"{value}")
-        self.canvas.changeOpac(value)
+        self.selected_tool_button = None
+        self.selected_color_button = None
 
     def setupUI(self):
-        top_bar = QWidget()
-        top_bar_layout = QHBoxLayout(top_bar)
-        color_picker_layout = QVBoxLayout()
-        color_row_1 = QHBoxLayout()
-        colors_row_1 = [
-            '#000000', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#00FFFF', 
-            '#FF6347', '#FFD700', '#FF1493', '#A52A2A', '#8A2BE2', '#C71585'
+        main_layout = QHBoxLayout()
+        
+        left_bar = QVBoxLayout()
+        left_bar_widget = QWidget()
+        left_bar_widget.setLayout(left_bar)
+        left_bar_widget.setStyleSheet("background-color: #B0C4DE; border: 2px solid black;")
+
+        self.zoom_level_label = QLabel("Zoom:\n100%", self)
+        self.zoom_level_label.setAlignment(Qt.AlignCenter)
+        self.zoom_level_label.setStyleSheet("color: black; font-weight: bold; border: none;")
+        left_bar.addWidget(self.zoom_level_label)
+        self.canvas.zoomChanged.connect(self.updateZoomLabel)
+
+        tools = [
+            ("icons/pen.png", self.canvas.changeToPen),
+            ("icons/eraser.png", self.canvas.changeToErase),
+            ("icons/fill.png", self.canvas.changeToFill),
+            ("icons/line.png", self.canvas.changeToLine),
+            ("icons/rectangle.png", self.canvas.changeToRectangle),
+            ("icons/ellipse.png", self.canvas.changeToEllipse),
+            ("icons/zoom_in.png", partial(self.canvas.zoom, 2)),
+            ("icons/zoom_out.png", partial(self.canvas.zoom, 0.5)),
+            ("icons/zoom_reset.png", self.canvas.resetZoom),
         ]
-        for color in colors_row_1:
-            color_button = QPushButton(self)
-            color_button.setStyleSheet(f"background-color: {color};")
-            color_button.clicked.connect(lambda _, col=color: self.canvas.setPenColor(col))
-            color_row_1.addWidget(color_button)
 
-        color_row_2 = QHBoxLayout()
-        colors_row_2 = [
-            '#FFFFFF', '#C0C0C0', '#808080', '#800000', '#008000', '#A52A2A', 
-            '#9ACD32', '#4B0082', '#D2691E', '#32CD32', '#7B68EE', '#FF8C00'
-        ]
-        for color in colors_row_2:
-            color_button = QPushButton(self)
-            color_button.setStyleSheet(f"background-color: {color};")
-            color_button.clicked.connect(lambda _, col=color: self.canvas.setPenColor(col))
-            color_row_2.addWidget(color_button)
+        for icon_path, action in tools:
+            button = QPushButton(QIcon(icon_path), "", self)
+            button.setFixedSize(85, 85)
+            button.setIconSize(QSize(60, 60))
+            button.setStyleSheet("background-color: white;")
+            button.clicked.connect(lambda checked, btn=button, act=action: self.selectTool(btn, act))
+            left_bar.addWidget(button)
+        
+        left_bar.addStretch()  # add stretch to push buttons to the top
 
-        # Pen Size Slider
-        pen_size_label = QLabel("Pen Size:", self)
-        pen_size_slider = QSlider(Qt.Horizontal, self)
-        pen_size_slider.setRange(1, 10) 
-        pen_size_slider.setValue(self.canvas.pen_size) 
-        pen_size_slider.valueChanged.connect(self.changePenSize)
+        zoom_in_shortcut_1 = QShortcut(QKeySequence("Ctrl++"), self)
+        zoom_in_shortcut_2 = QShortcut(QKeySequence("Ctrl+="), self)
+        zoom_in_shortcut_1.activated.connect(lambda: self.canvas.zoom(2))
+        zoom_in_shortcut_2.activated.connect(lambda: self.canvas.zoom(2))
 
-        pen_size_value_label = QLabel(str(self.canvas.pen_size), self)
+        zoom_out_shortcut_1 = QShortcut(QKeySequence("Ctrl+-"), self)
+        zoom_out_shortcut_2 = QShortcut(QKeySequence("Ctrl+_"), self)
+        zoom_out_shortcut_1.activated.connect(lambda: self.canvas.zoom(0.5))
+        zoom_out_shortcut_2.activated.connect(lambda: self.canvas.zoom(0.5))
 
-        # Opacity Slider
-        opacity_label = QLabel("Opacity:", self)
-        opacity_slider = QSlider(Qt.Horizontal, self)
-        opacity_slider.setRange(0, 255)  
-        opacity_slider.setValue(255) 
-        opacity_slider.valueChanged.connect(self.changeOpacity)
+        reset_zoom_shortcut_1 = QShortcut(QKeySequence("Ctrl+0"), self)
+        reset_zoom_shortcut_2 = QShortcut(QKeySequence("Ctrl+)"), self)
+        reset_zoom_shortcut_1.activated.connect(self.canvas.resetZoom)
+        reset_zoom_shortcut_2.activated.connect(self.canvas.resetZoom)
 
-        opacity_value_label = QLabel(f"{255}", self)
-
-        # Add sliders to a layout
-        sliders_layout = QVBoxLayout()
-        sliders_layout.addWidget(pen_size_label)
-        sliders_layout.addWidget(pen_size_slider)
-        sliders_layout.addWidget(opacity_label)
-        sliders_layout.addWidget(opacity_slider)
-
-        # Add layouts to the top bar
-        top_bar_layout.addLayout(color_picker_layout)
-        top_bar_layout.addLayout(sliders_layout)
-
-        color_picker_layout.addLayout(color_row_1)
-        color_picker_layout.addLayout(color_row_2)
-
-        custom_color_button = QPushButton("Custom Color", self)
-        custom_color_button.clicked.connect(self.openColorDialog)
-        custom_color_button.setFixedSize(100, 30) 
-        custom_color_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        color_row_2.addWidget(custom_color_button, alignment=Qt.AlignRight)
-
-        spacer = QSpacerItem(15, 15, QSizePolicy.Expanding, QSizePolicy.Minimum)
-
-        top_bar_layout.addLayout(color_picker_layout)
-        top_bar_layout.addItem(spacer)
-
-        mode_layout = QVBoxLayout()
-
-        penButton = QPushButton("Pen", self)
-        penButton.clicked.connect(self.canvas.changeToPen)
-        eraserButton = QPushButton("Eraser", self)
-        eraserButton.clicked.connect(self.canvas.changeToErase)
-        fillButton = QPushButton("Fill", self)
-        fillButton.clicked.connect(self.canvas.changeToFill)
-        zoomInButton = QPushButton("Zoom In", self)
-        zoomInButton.clicked.connect(lambda: self.canvas.zoom(2))
-        zoomOutButton = QPushButton("Zoom Out", self)
-        zoomOutButton.clicked.connect(lambda: self.canvas.zoom(0.5))
-        drawLineButton = QPushButton("Draw Line", self)
-        drawLineButton.clicked.connect(lambda: self.canvas.setDrawingMode(4))
-
-        mode_layout.addWidget(penButton)
-        mode_layout.addWidget(eraserButton)
-        mode_layout.addWidget(fillButton)
-        mode_layout.addWidget(zoomInButton)
-        mode_layout.addWidget(zoomOutButton)
-        mode_layout.addWidget(drawLineButton)
-
-        top_bar_layout.addLayout(mode_layout)
-
-        scroll_area = QtWidgets.QScrollArea()
+        scroll_area = QScrollArea() # canvas / middle area
         scroll_area.setWidget(self.canvas)
         scroll_area.setWidgetResizable(True)
-        scroll_area.setAlignment(Qt.AlignCenter) 
-        self
-        scroll_area.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll_area.setAlignment(Qt.AlignCenter)
 
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(top_bar)  
-        main_layout.addWidget(scroll_area)
+        right_bar = QVBoxLayout()
+        right_bar_widget = QWidget()
+        right_bar_widget.setLayout(right_bar)
+        right_bar_widget.setStyleSheet("background-color: #B0C4DE; border: 2px solid black;")
+
+        pen_size_label = QLabel("Pen Size:", self)
+        pen_size_label.setAlignment(Qt.AlignCenter)
+        pen_size_label.setStyleSheet("color: black; border: none; font-weight: bold;")
+        self.pen_size_slider = QSlider(Qt.Horizontal, self)
+        self.pen_size_slider.setRange(1, 10)
+        self.pen_size_slider.setValue(self.canvas.pen_size)
+        self.pen_size_slider.valueChanged.connect(self.changePenSize)
+        self.pen_size_slider.setStyleSheet("border: none;")
+        self.pen_size_value_label = QLabel(str(self.canvas.pen_size))
+        self.pen_size_value_label.setStyleSheet("color: black; border: none; font-weight: bold;")
+        self.pen_size_value_label.setAlignment(Qt.AlignCenter)
+
+        opacity_label = QLabel("Opacity:", self)
+        opacity_label.setAlignment(Qt.AlignCenter)
+        opacity_label.setStyleSheet("color: black; border: none; font-weight: bold;")
+        self.opacity_slider = QSlider(Qt.Horizontal, self)
+        self.opacity_slider.setRange(0, 255)
+        self.opacity_slider.setValue(255)
+        self.opacity_slider.valueChanged.connect(self.changeOpacity)
+        self.opacity_slider.setStyleSheet("border: none;")
+        self.opacity_value_label = QLabel(f"{255}", self)
+        self.opacity_value_label.setStyleSheet("color: black; border: none; font-weight: bold;")
+        self.opacity_value_label.setAlignment(Qt.AlignCenter)
+        
+        colors = [ # base colors
+            "#000000", "#ffffff", 
+            "#808080", "#C0C0C0", 
+            "#800000", "#804000",
+            "#ff0000", "#ffB6C1", 
+            "#ffA500", "#ffB347", 
+            "#ffff00", "#EEE8AA",
+            "#00ff00", "#ADff2f", 
+            "#0080ff", "#00ffff", 
+            "#0000ff", "#8080ff",
+            "#800080", "#ff00ff"
+        ]
+        
+        self.color_buttons = [] # custom colors storage
+        color_grid = QGridLayout()
+        for i, color in enumerate(colors + [""] * 10):
+            color_button = QPushButton(self)
+            color_button.setFixedSize(40, 40)
+            color_button.color = color
+            if color: 
+                color_button.setStyleSheet(f"background-color: {color}; border: 2px solid darkslategray;")
+                #color_button.clicked.connect(lambda _, btn=color_button, col=color: self.selectColor(btn, col)) #add loop
+                color_button.clicked.connect(partial(self.selectColor, color_button, color))
+            else:
+                color_button.setStyleSheet(f"background-color: white; border: 2px solid darkslategray;")
+                color_button.setEnabled(False)
+            self.color_buttons.append(color_button)
+            color_grid.addWidget(color_button, i // 2, i % 2)
+
+        right_bar.addWidget(pen_size_label)
+        right_bar.addWidget(self.pen_size_slider)
+        right_bar.addWidget(self.pen_size_value_label)
+        right_bar.addWidget(opacity_label)
+        right_bar.addWidget(self.opacity_slider)
+        right_bar.addWidget(self.opacity_value_label)
+
+        right_bar.addLayout(color_grid)
+
+        custom_color_button = QPushButton("Add Custom Color", self)
+        custom_color_button.clicked.connect(self.addCustomColor)
+        custom_color_button.setFixedSize(200, 30)
+        custom_color_button.setStyleSheet("background-color: silver; font-weight: bold;")
+        right_bar.addWidget(custom_color_button, alignment=Qt.AlignCenter)
+        right_bar.addStretch()
+
+        main_layout.addWidget(left_bar_widget)
+        main_layout.addWidget(scroll_area, stretch=1)  # give the canvas majority space
+        main_layout.addWidget(right_bar_widget)
 
         central_widget = QWidget()
         central_widget.setLayout(main_layout)
+        central_widget.setStyleSheet("background-color: dimgrey; border: none;")
         self.setCentralWidget(central_widget)
 
     def createMenus(self):
         menubar = self.menuBar()
+        menubar.setStyleSheet("background-color: silver; color: black; font-weight: bold;")
         
-        newGridAction = QAction('New', self)
+        newGridAction = QAction("New", self)
         newGridAction.setShortcut("Ctrl+N")
         newGridAction.triggered.connect(self.newCanvas)
         menubar.addAction(newGridAction)
 
-        saveAction = QAction('Save', self)
+        saveAction = QAction("Save", self)
         saveAction.setShortcut("Ctrl+S")
         saveAction.triggered.connect(self.saveCanvas)
         menubar.addAction(saveAction)
 
-        openAction = QAction('Open', self)
+        openAction = QAction("Open", self)
         openAction.setShortcut("Ctrl+O")
         openAction.triggered.connect(self.openImage)
         menubar.addAction(openAction)
@@ -458,75 +594,9 @@ class MainWindow(QtWidgets.QMainWindow):
         redoAction.setShortcut("Ctrl+Y")
         redoAction.triggered.connect(self.canvas.redo)
         menubar.addAction(redoAction)
-    
-    def createToolbar(self):
-        toolbar = QToolBar("Tools")
-        self.addToolBar(toolbar)
 
-        penAction = QAction("Pen", self)
-        penAction.triggered.connect(self.canvas.changeToPen)
-        toolbar.addAction(penAction)
-
-        eraserAction = QAction("Eraser", self)
-        eraserAction.triggered.connect(self.canvas.changeToErase)
-        toolbar.addAction(eraserAction)
-
-        fillAction = QAction("Fill", self)
-        fillAction.triggered.connect(self.canvas.changeToFill)
-        toolbar.addAction(fillAction)
-
-        colorAction = QAction("Open Color Dialog", self)
-        colorAction.triggered.connect(self.openColorDialog)
-        toolbar.addAction(colorAction)
-        
-        zoomInAction = QAction("Zoom In", self)
-        zoomInAction.setShortcuts({QKeySequence("Ctrl++"), QKeySequence("Ctrl+=")})
-        zoomInAction.triggered.connect(lambda: self.canvas.zoom(2))
-        toolbar.addAction(zoomInAction)
-        
-        zoomOutAction = QAction("Zoom Out", self)
-        zoomOutAction.setShortcuts({QKeySequence("Ctrl+-"), QKeySequence("Ctrl+_")})
-        zoomOutAction.triggered.connect(lambda: self.canvas.zoom(0.5))
-        toolbar.addAction(zoomOutAction)
-        
-        resetZoomAction = QAction("Reset Zoom", self)
-        resetZoomAction.setShortcut("Ctrl+0")
-        resetZoomAction.triggered.connect(self.canvas.resetZoom)
-        toolbar.addAction(resetZoomAction)
-
-        lineAction = QAction("Line Tool", self)
-        lineAction.triggered.connect(lambda: self.canvas.setDrawingMode(4))
-        toolbar.addAction(lineAction)
-
-        rectangleAction = QAction("Rectangle Tool", self)
-        rectangleAction.triggered.connect(lambda: self.canvas.setDrawingMode(5))
-        toolbar.addAction(rectangleAction)
-
-        circleAction = QAction("Circle Tool", self)
-        circleAction.triggered.connect(lambda: self.canvas.setDrawingMode(6))
-        toolbar.addAction(circleAction)
-    
-    def adjustZoomToFitCanvas(self):
-        central_widget = self.centralWidget()
-        scroll_area = central_widget.findChild(QtWidgets.QScrollArea)
-        if scroll_area:
-            available_width = self.width() - scroll_area.verticalScrollBar().sizeHint().width()
-            available_height = self.height() - scroll_area.horizontalScrollBar().sizeHint().height()
-            canvas_width = self.canvas.grid_size * self.canvas.cell_size
-            canvas_height = self.canvas.grid_size * self.canvas.cell_size
-
-            width_ratio = available_width / canvas_width
-            height_ratio = available_height / canvas_height
-            zoom_factor = min(width_ratio, height_ratio)
-
-            self.canvas.zoom_level = zoom_factor
-            self.canvas.updateTransform()
-        else:
-            print("Scroll area not found in central widget")
-
-        
     def newCanvas(self):
-        grid_size, ok = QInputDialog.getInt(self, "New Canvas", "Grid size (e.g., 32):", 32, 8, 512, 8)
+        grid_size, ok = QInputDialog.getInt(self, "New Canvas", "Enter the new canvas' size (default 64x64, min 8x8, max 256x256):", 64, 8, 256, 8)
         if ok:
             self.canvas.clearCanvas(grid_size, default_cell_size)
             self.canvas.updateTransform()
@@ -543,7 +613,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if filePath:
                 scaled_image = self.canvas.image.scaled(self.canvas.width // self.canvas.cell_size, 
                                                         self.canvas.height // self.canvas.cell_size, 
-                                                        QtCore.Qt.IgnoreAspectRatio)
+                                                        Qt.IgnoreAspectRatio)
                 scaled_image.save(filePath)
             else:
                 raise Exception("Failed to save the file.")
@@ -552,30 +622,62 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def openImage(self):
         try:
-            imagePath, _ = QFileDialog.getOpenFileName()
+            imagePath, _ = QFileDialog.getOpenFileName(self, "Save Image", "", "PNG(*.png);;JPEG(*.jpg *.jpeg);;All Files(*.*) ")
             if imagePath:
                 pixmap = QPixmap(imagePath)
                 if pixmap.isNull():
                     raise Exception("Invalid image format.")
                 if pixmap.width() != pixmap.height():
                     raise ValueError("The image must be square (width and height must be equal).")
-                
-                image_width = pixmap.width()
-                image_height = pixmap.height()
-                if image_width == image_height:
-                    grid_size = image_width
-                    self.canvas.clearCanvas(grid_size, self.canvas.cell_size)
+                    
+                grid_size = pixmap.width()
+                cell_size = self.canvas.cell_size
+                self.canvas.clearCanvas(grid_size, cell_size)
+                self.canvas.image = pixmap.scaled(grid_size * cell_size, grid_size * cell_size)
 
-                    self.canvas.image = pixmap.scaled(self.canvas.size(), QtCore.Qt.IgnoreAspectRatio)
-                    self.canvas.setPixmap(self.canvas.image)
-
-                    self.showMaximized()
-                else:
-                    QMessageBox.warning(self, "Error", "The image must be square (width and height must be equal).")
+                self.showMaximized()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to open the image. Error: {e}")
 
-app = QtWidgets.QApplication(sys.argv)
+    
+    def changePenSize(self, value):
+        self.canvas.pen_size = value
+        self.pen_size_value_label.setText(f"{value}")
+        self.canvas.setFocus()
+
+    def changeOpacity(self, value):
+        self.opacity_value_label.setText(f"{value}")
+        self.canvas.changeOpac(value)
+
+    def addCustomColor(self):
+        color = QColorDialog.getColor()
+        if color.isValid():
+            for button in self.color_buttons:
+                if not button.isEnabled():
+                    button.color = color.name()
+                    button.setStyleSheet(f"background-color: {color.name()}; border: 2px solid darkslategray;")
+                    button.clicked.connect(partial(self.selectColor, button, color.name()))
+                    button.setEnabled(True)
+                    break
+    
+    def selectTool(self, button, action):
+        if self.selected_tool_button: # reset highlight
+            self.selected_tool_button.setStyleSheet("background-color: white;")
+        button.setStyleSheet("background-color: lightblue; border: 2px solid darkblue;") # new highlight
+        self.selected_tool_button = button
+        action()
+
+    def selectColor(self, button, color):
+        if self.selected_color_button: # reset highlight
+            self.selected_color_button.setStyleSheet(f"background-color: {self.selected_color_button.color}; border: 2px solid darkslategray;") 
+        button.setStyleSheet(f"background-color: {color}; border: 7px solid darkblue;") # new highlight
+        self.selected_color_button = button
+        self.canvas.setPenColor(color)
+
+    def updateZoomLabel(self, zoom_level):
+        self.zoom_level_label.setText(f"Zoom:\n{int(zoom_level * 100)}%")
+
+app = QApplication(sys.argv)
 window = MainWindow()
 window.show()
 app.exec_()
